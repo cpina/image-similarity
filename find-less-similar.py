@@ -7,6 +7,7 @@ import os
 import glob
 import imageio
 import numpy
+import concurrent.futures
 
 
 def read_image(path, rectangular_area):
@@ -29,31 +30,29 @@ def seconds_to_minutes_seconds(seconds):
     return "{}m {:02}s".format(int(m), int(s))
 
 
+def process_image(image_path, rectangular_area, output_directory, base_image):
+    image = read_image(image_path, rectangular_area)
+    similarity_index = pixel_similarity(base_image, image)
+    similarity = "{:010}".format(similarity_index)
+    image_basename = os.path.splitext(os.path.basename(image_path))[0]
+    base_filename = "{}_{}".format(similarity, image_basename)
+    output_path = "{output_directory}/{base_filename}.jpg".format(output_directory=output_directory,
+                                                                   base_filename=base_filename)
+    os.symlink(image_path, output_path)
+
+
 def rank_images(base_image_path, directory_path, rectangular_area, output_directory):
     base_image = read_image(base_image_path, rectangular_area)
 
-    file_simliarities = {}
-
-    max_number_of_files = -1
     processed = 0
 
     image_paths = glob.glob(directory_path)
 
     starts_timestamp = time.time()
-    for image_path in image_paths:
-        image = read_image(image_path, rectangular_area)
-        similarity_index = pixel_similarity(base_image, image)
-        similarity = "{:010}".format(similarity_index)
-        image_basename = os.path.splitext(os.path.basename(image_path))[0]
-        base_filename = "{}_{}".format(similarity, image_basename)
-        output_path = "{output_directory}/{base_filename}/.jpg".format(output_directory=output_directory,
-                                                                       base_filename=base_filename)
-        os.symlink(image_path, output_path)
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        executor.map(lambda image_path: process_image(image_path, rectangular_area, output_directory, base_image), image_paths)
         processed += 1
-
-        if max_number_of_files != -1 and processed > max_number_of_files:
-            break
 
         if processed % 50 == 0:
             time_elapsed = time.time() - starts_timestamp
@@ -61,7 +60,6 @@ def rank_images(base_image_path, directory_path, rectangular_area, output_direct
             eta = (len(image_paths) * time_elapsed) / processed
             print("Images processed: {} Percentage: {:.2f}% Elapsed: {} ETA: {}".format(processed, percentage,
                                                                                                     seconds_to_minutes_seconds(time_elapsed), seconds_to_minutes_seconds(eta)))
-
 
 if __name__ == "__main__":
     base_image_path = "/media/carles/c3726133-fb1b-4bf8-a2be-56d88ecfb291/camera/images/test000062069.jpg"
